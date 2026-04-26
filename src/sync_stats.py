@@ -3,7 +3,7 @@ import logging
 import os
 import sys
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from google.cloud import secretmanager
 from getpass import getpass
 from pathlib import Path
@@ -20,6 +20,7 @@ from garminconnect import (
 
 from src import config
 from src import garmin_api
+from src.utils import decimal_pace_to_mmss
 
 logging.getLogger("garminconnect").setLevel(logging.CRITICAL)
 
@@ -29,6 +30,19 @@ if not config.SPREADSHEET_ID:
 
 
 def sync_garmin_stats():
+    state_file = Path(".last_sync_timestamp")
+    now = datetime.now()
+    if state_file.exists():
+        try:
+            last_sync_str = state_file.read_text().strip()
+            last_sync = datetime.fromisoformat(last_sync_str)
+            if now - last_sync < timedelta(hours=6):
+                print(f"Last sync was at {last_sync_str} (less than 6 hours ago). Skipping.")
+                return
+        except ValueError:
+            print("Warning: Could not parse last sync timestamp. Proceeding with sync.")
+            pass
+
     api = garmin_api.init_api()
     if not api:
         print("Failed to initialize Garmin API.")
@@ -45,8 +59,6 @@ def sync_garmin_stats():
 
     processed_activities = []
     for i, activity in enumerate(activities):
-        if i == 0:
-            print(f"Debug: Available keys in activity: {list(activity.keys())}")
             
         # Extract relevant data
         activity_id = activity['activityId']
@@ -66,7 +78,21 @@ def sync_garmin_stats():
         if te_aerobic is None:
             te_aerobic = activity.get('aerobicTrainingEffect', 0)
         te_anaerobic = activity.get('anaerobicTrainingEffect', 0)
+        te_aerobic = round(float(te_aerobic), 1)
+        te_anaerobic = round(float(te_anaerobic), 1)
         start_time = activity['startTimeLocal']
+
+        # Extract additional fields
+        activity_type_obj = activity.get('activityType', {})
+        activity_type = activity_type_obj.get('typeKey', '') if isinstance(activity_type_obj, dict) else activity_type_obj
+        vo2max = activity.get('vO2MaxValue') or activity.get('vo2MaxValue') or 0
+        vo2max = round(float(vo2max), 1)
+        calories = activity.get('calories', 0)
+        te_label = activity.get('trainingEffectLabel', '')
+        
+        # Cadence
+        avg_cadence = activity.get('averageRunningCadenceInStepsPerMinute') or activity.get('averageCadence', 0)
+        max_cadence = activity.get('maxRunningCadenceInStepsPerMinute') or activity.get('maxCadence', 0)
 
         # Fetch HR zones
         success_hr, hr_zones, err_hr = garmin_api.safe_api_call(api.get_activity_hr_in_timezones, activity_id)
@@ -85,7 +111,13 @@ def sync_garmin_stats():
             "pace": round(pace, 2),
             "TE_aerobic": te_aerobic,
             "TE_anaerobic": te_anaerobic,
-            "HR_zones": json.dumps(hr_zones) if hr_zones else "{}"
+            "HR_zones": json.dumps(hr_zones) if hr_zones else "{}",
+            "activityType": activity_type,
+            "vo2max": vo2max,
+            "calories": calories,
+            "trainingEffectLabel": te_label,
+            "avgCadence": round(avg_cadence, 1),
+            "maxCadence": round(max_cadence, 1)
         })
 
     if not processed_activities:
@@ -119,16 +151,11 @@ def sync_garmin_stats():
             print(f"Warning: Failed to read existing data from sheet: {e}. Assuming empty.")
             existing_values = []
 
-        existing_start_times = set()
-        for row in existing_values:
-            if not row:
-                continue
-            # Old schema: 10 columns, startTimeLocal at index 0
-            # New schema: 11 columns, startTimeLocal at index 1
-            if len(row) == 10:
-                existing_start_times.add(row[0])
-            elif len(row) >= 11:
-                existing_start_times.add(row[1])
+        # Extract start times to check for duplicates (handles old schema with 10 cols and new with >=11)
+        existing_start_times = {
+            row[1] if len(row) >= 11 else row[0]
+            for row in existing_values if row
+        }
 
         sync_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -142,14 +169,20 @@ def sync_garmin_stats():
                 sync_timestamp,
                 activity["startTimeLocal"],
                 activity["activityName"],
+                activity.get("activityType", ""),
                 activity["distance"],
                 activity["duration"],
                 activity["averageHR"],
                 activity["maxHR"],
-                activity["pace"],
+                decimal_pace_to_mmss(activity["pace"]),
+                activity.get("avgCadence", 0),
+                activity.get("maxCadence", 0),
                 activity["TE_aerobic"],
                 activity["TE_anaerobic"],
-                activity["HR_zones"]
+                activity["HR_zones"],
+                activity.get("vo2max", 0),
+                activity.get("calories", 0),
+                activity.get("trainingEffectLabel", "")
             ])
         
         if rows_to_append:
@@ -159,14 +192,11 @@ def sync_garmin_stats():
         else:
             print("No new activities to append.")
 
+        # Update state file on success
+        state_file.write_text(now.isoformat())
+
     except Exception as e:
         print(f"Failed to send data to Google Sheets: {e}")
-
-
-    # Show result as pandas dataframe
-    print("\nResults as Pandas DataFrame:")
-    df = pd.DataFrame(processed_activities)
-    print(df)
 
 if __name__ == "__main__":
     sync_garmin_stats()
