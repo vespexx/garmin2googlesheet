@@ -22,10 +22,14 @@ from src import config
 from src import garmin_api
 from src.utils import decimal_pace_to_mmss
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 logging.getLogger("garminconnect").setLevel(logging.CRITICAL)
 
 if not config.SPREADSHEET_ID:
-    print("Error: Missing SPREADSHEET_ID environment variable. Please check your .env file.")
+    logging.error("Missing SPREADSHEET_ID environment variable. Please check your .env file.")
     sys.exit(1)
 
 
@@ -37,25 +41,25 @@ def sync_garmin_stats():
             last_sync_str = state_file.read_text().strip()
             last_sync = datetime.fromisoformat(last_sync_str)
             if now - last_sync < timedelta(hours=6):
-                print(f"Last sync was at {last_sync_str} (less than 6 hours ago). Skipping.")
+                logging.info(f"Last sync was at {last_sync_str} (less than 6 hours ago). Skipping.")
                 return
         except ValueError:
-            print("Warning: Could not parse last sync timestamp. Proceeding with sync.")
+            logging.warning("Could not parse last sync timestamp. Proceeding with sync.")
             pass
 
     api = garmin_api.init_api()
     if not api:
-        print("Failed to initialize Garmin API.")
+        logging.error("Failed to initialize Garmin API.")
         return
 
-    print("Fetching activities...")
+    logging.info("Fetching activities...")
     # Get last 100 activities
     success, activities, err = garmin_api.safe_api_call(api.get_activities, 0, 100)
     if not success:
-        print(f"Failed to fetch activities: {err}")
+        logging.error(f"Failed to fetch activities: {err}")
         sys.exit(1)
 
-    print(f"Found {len(activities)} activities. Processing...")
+    logging.info(f"Found {len(activities)} activities. Processing...")
 
     processed_activities = []
     for i, activity in enumerate(activities):
@@ -99,7 +103,7 @@ def sync_garmin_stats():
         if not success_hr:
             hr_zones = {}
 
-        print(f"Processing activity: {name} ({start_time})")
+        logging.info(f"Processing activity: {name} ({start_time})")
 
         processed_activities.append({
             "startTimeLocal": start_time,
@@ -121,25 +125,25 @@ def sync_garmin_stats():
         })
 
     if not processed_activities:
-        print("No activities to send.")
+        logging.info("No activities to send.")
         return
 
-    print(f"Sending {len(processed_activities)} activities to Google Sheets...")
+    logging.info(f"Sending {len(processed_activities)} activities to Google Sheets...")
     try:
         # Initialize gspread
         secret_name = config.GARMIN_SHEET_SECRET_NAME
         if secret_name:
-            print(f"Fetching service account key from Secret Manager: {secret_name}")
+            logging.info(f"Fetching service account key from Secret Manager: {secret_name}")
             try:
                 client = secretmanager.SecretManagerServiceClient()
                 response = client.access_secret_version(request={"name": secret_name})
                 secret_json = response.payload.data.decode("UTF-8")
                 gc = gspread.service_account_from_dict(json.loads(secret_json))
             except Exception as e:
-                print(f"Error fetching secret or initializing gspread: {e}")
+                logging.error(f"Error fetching secret or initializing gspread: {e}")
                 sys.exit(1)
         else:
-            print("Using local service_account.json")
+            logging.info("Using local service_account.json")
             gc = gspread.service_account(filename="service_account.json")
         sh = gc.open_by_key(config.SPREADSHEET_ID)
         wks = sh.sheet1
@@ -148,7 +152,7 @@ def sync_garmin_stats():
         try:
             existing_values = wks.get_all_values()
         except Exception as e:
-            print(f"Warning: Failed to read existing data from sheet: {e}. Assuming empty.")
+            logging.warning(f"Warning: Failed to read existing data from sheet: {e}. Assuming empty.")
             existing_values = []
 
         # Extract start times to check for duplicates (handles old schema with 10 cols and new with >=11)
@@ -186,17 +190,17 @@ def sync_garmin_stats():
             ])
         
         if rows_to_append:
-            print(f"Appending {len(rows_to_append)} new rows to Google Sheet...")
+            logging.info(f"Appending {len(rows_to_append)} new rows to Google Sheet...")
             wks.append_rows(rows_to_append)
-            print("Successfully updated Google Sheet.")
+            logging.info("Successfully updated Google Sheet.")
         else:
-            print("No new activities to append.")
+            logging.info("No new activities to append.")
 
         # Update state file on success
         state_file.write_text(now.isoformat())
 
     except Exception as e:
-        print(f"Failed to send data to Google Sheets: {e}")
+        logging.error(f"Failed to send data to Google Sheets: {e}")
 
 if __name__ == "__main__":
     sync_garmin_stats()
