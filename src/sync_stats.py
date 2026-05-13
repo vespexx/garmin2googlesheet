@@ -124,23 +124,6 @@ def sync_garmin_stats():
             "maxCadence": round(max_cadence, 1)
         })
 
-    # Save last workout to local file for frontend
-    if processed_activities:
-        frontend_data_dir = Path("src/frontend/data")
-        frontend_data_dir.mkdir(parents=True, exist_ok=True)
-        last_workout_file = frontend_data_dir / "last_workout.js"
-        try:
-            with open(last_workout_file, "w") as f:
-                f.write("window.lastWorkout = ")
-                json.dump(processed_activities[0], f, indent=4)
-                f.write(";")
-            logging.info(f"Saved last workout to {last_workout_file}")
-        except Exception as e:
-            logging.error(f"Failed to save last workout to file: {e}")
-
-    if not processed_activities:
-        logging.info("No activities to send.")
-        return
 
     logging.info(f"Sending {len(processed_activities)} activities to Google Sheets...")
     try:
@@ -204,8 +187,8 @@ def sync_garmin_stats():
             ])
         
         if rows_to_append:
-            logging.info(f"Appending {len(rows_to_append)} new rows to Google Sheet...")
-            wks.append_rows(rows_to_append)
+            logging.info(f"Inserting {len(rows_to_append)} new rows to Google Sheet at row 2...")
+            wks.insert_rows(rows_to_append, row=2)
             logging.info("Successfully updated Google Sheet.")
         else:
             logging.info("No new activities to append.")
