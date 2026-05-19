@@ -24,14 +24,12 @@ jobs:
           GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
           GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
-          # Скрипту нужен путь к файлу с кредами, поэтому мы создаем его на лету
-          GOOGLE_APPLICATION_CREDENTIALS: /tmp/service_account.json
         run: |
           # 1. Удаляем лок-файл с чужими приватными путями
           rm -f uv.lock
           
-          # 2. Записываем секрет с JSON в реальный файл
-          echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > /tmp/service_account.json
+          # Записываем секрет с JSON в файл service_account.json прямо в текущую папку
+          echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > service_account.json
           
-          # 3. Запускаем скрипт (uv скачает всё с официального PyPI)
+          # Запускаем скрипт
           uv run python -m src.sync_stats
