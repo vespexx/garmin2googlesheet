@@ -1,0 +1,34 @@
+name: Garmin to Google Sheets Sync
+
+on:
+  schedule:
+    # Запуск каждый день в 05:00 UTC (08:00 по Москве/Кипру)
+    - cron: '0 5 * * *' 
+  workflow_dispatch: # Позволяет запускать скрипт вручную по кнопке
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        
+      - name: Set up Python
+        run: uv python install 3.12
+        
+      - name: Run Garmin Sync
+        env:
+          GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
+          GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          # Скрипту нужен путь к файлу с кредами, поэтому мы создаем его на лету
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/service_account.json
+        run: |
+          # Записываем секрет с JSON в реальный файл, который сможет прочитать библиотека Google
+          echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > /tmp/service_account.json
+          
+          # Запускаем скрипт через uv
+          uv run python -m src.sync_stats
