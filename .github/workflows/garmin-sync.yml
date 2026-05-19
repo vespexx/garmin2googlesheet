@@ -27,8 +27,11 @@ jobs:
           # Скрипту нужен путь к файлу с кредами, поэтому мы создаем его на лету
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/service_account.json
         run: |
-          # Записываем секрет с JSON в реальный файл, который сможет прочитать библиотека Google
+          # 1. Удаляем лок-файл с чужими приватными путями
+          rm -f uv.lock
+          
+          # 2. Записываем секрет с JSON в реальный файл
           echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > /tmp/service_account.json
           
-          # Запускаем скрипт через uv
+          # 3. Запускаем скрипт (uv скачает всё с официального PyPI)
           uv run python -m src.sync_stats
