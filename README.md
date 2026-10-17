@@ -1,3 +1,8 @@
+> **Archived.** Further work and logic are being rewritten and continued in a more general
+> service, **health-sync** (Garmin and other health data sync/export). It is private for now,
+> until the service/product is ready. This fork stays here as-is for history.
+> Upstream: [Yorko/runstats2sheet](https://github.com/Yorko/runstats2sheet).
+
 # Garmin to Google Sheets Sync
 
 This application fetches your running stats from Garmin Connect and writes them directly to a Google Sheet using the `gspread` library.
